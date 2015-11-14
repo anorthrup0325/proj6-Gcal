@@ -1,6 +1,9 @@
 # proj6-Gcal
 Snarf appointment data from a selection of a user's Google calendars 
 
+## Hosting
+[View live on IX (for now)](http://ix.cs.uoregon.edu:5279/index)
+
 ## What is here
 
 I've provided code for the authorization (oauth2) protocol for Google
@@ -39,6 +42,4 @@ More about the client secret file is described in our Piazza group.
 Whether or not you already have a Google calendar, it's a good idea to
 create one or two 'test' calendars with a known set of appointments
 for testing.
-
-
 
