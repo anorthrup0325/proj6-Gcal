@@ -59,7 +59,24 @@ def choose():
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
     flask.session['calendars'] = list_calendars(gcal_service)
-    return render_template('index.html')
+    return flask.redirect(flask.url_for('index'))
+
+@app.route("/show_times", methods=['POST'])
+def show_times():
+    app.logger.debug("Checking credentials for Google calendar access")
+    credentials = valid_credentials()
+    if not credentials:
+       app.logger.debug("Redirecting to authorization")
+       return flask.redirect(flask.url_for('oauth2callback'))
+    
+    # Read calendars
+    gcal_service = get_gcal_service(credentials)
+    app.logger.debug("Returned from get_gcal_service")
+    selected_cals = request.form.getlist('calendars')
+    app.logger.debug(selected_cals)
+    flask.session['free_times'],flask.session['busy_times'] = get_times(gcal_service, selected_cals)
+    
+    return render_template('show_times.html')
 
 ####
 #
@@ -207,16 +224,16 @@ def init_session_values():
     Start with some reasonable defaults for date and time ranges.
     Note this must be run in app context ... can't call from main. 
     """
-    # Default date span = tomorrow to 1 week from now
+    # Default date span = today to 1 week from now
     now = arrow.now('local')
     tomorrow = now.replace(days=+1)
     nextweek = now.replace(days=+7)
-    flask.session["begin_date"] = tomorrow.floor('day').isoformat()
+    flask.session["begin_date"] = now.floor('day').isoformat()
     flask.session["end_date"] = nextweek.ceil('day').isoformat()
     flask.session["daterange"] = "{} - {}".format(
-        tomorrow.format("MM/DD/YYYY"),
+        now.format("MM/DD/YYYY"),
         nextweek.format("MM/DD/YYYY"))
-    # Default time span each day, 8 to 5
+    # Default time span each day, 9 to 5
     flask.session["begin_time"] = interpret_time("9am")
     flask.session["end_time"] = interpret_time("5pm")
 
@@ -315,6 +332,35 @@ def cal_sort_key( cal ):
     else:
        primary_key = "X"
     return (primary_key, selected_key, cal["summary"])
+    
+def get_times(service, cals):
+	ftl = [] # Free Time List
+	btl = [] # Busy Time List
+	
+	time_min = flask.session["begin_date"]
+	time_max = arrow.get(flask.session["end_date"]).replace(hours=+24, seconds=-1).isoformat()
+	
+	# Iterate through selected calendars
+	for cal in cals:
+		# Get the items from google
+		cal_items = service.events().list(calendarId=cal, timeMin=time_min, timeMax=time_max, singleEvents=True).execute()['items']
+		for item in cal_items:
+			# Add to proper list
+			try:
+				t_start = item["start"]["dateTime"]
+			except:
+				t_start = arrow.get(item["start"]["date"], "YYYY-MM-DD").isoformat()
+			try:
+				t_end = item["end"]["dateTime"]
+			except:
+				t_end = arrow.get(item["end"]["date"], "YYYY-MM-DD").isoformat()
+			item_range = {"start": t_start, "end": t_end, "desc": item["summary"]}
+			if "transparency" in item and item["transparency"] == "transparent":
+				ftl.append(item_range)
+			else:
+				btl.append(item_range)
+	
+	return ftl,btl
 
 
 #################
@@ -338,6 +384,14 @@ def format_arrow_time( time ):
         return normal.format("HH:mm")
     except:
         return "(bad time)"
+
+@app.template_filter( 'fmtdatetime' )
+def format_arrow_datetime( datetime ):
+    try:
+        normal = arrow.get( datetime )
+        return normal.format("ddd MM/DD/YYYY HH:mm")
+    except:
+        return "(bad time)"
     
 #############
 
@@ -354,7 +408,7 @@ if __name__ == "__main__":
   # otherwise accessible to world
   if CONFIG.DEBUG:
     # Reachable only from the same computer
-    app.run(port=CONFIG.PORT)
+    app.run(port=CONFIG.PORT,host="0.0.0.0")
   else:
     # Reachable from anywhere 
     app.run(port=CONFIG.PORT,host="0.0.0.0")
